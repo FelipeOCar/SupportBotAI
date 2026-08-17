@@ -89,7 +89,6 @@ Nutzereingaben werden für die Antwort an die externe Gemini API übermittelt. D
 
 ## Abgabe-Check
 
-- [ ] Name und Datum in der Dokumentation ersetzt
 - [ ] App in Visual Studio erfolgreich kompiliert
 - [ ] echte Gemini-Antwort getestet
 - [ ] zwei echte Peer-Tests durchgeführt und SUS-Scores eingetragen
