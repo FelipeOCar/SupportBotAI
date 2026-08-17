@@ -1,0 +1,111 @@
+@page "/settings"
+@inject IJSRuntime JS
+
+<PageTitle>Einstellungen · SupportBot AI</PageTitle>
+
+<header class="page-header">
+    <div>
+        <h1>Einstellungen & Barrierefreiheit</h1>
+        <p>Pass die Darstellung und alternative Ein- und Ausgabemethoden an deine Bedürfnisse an.</p>
+    </div>
+</header>
+
+<div class="settings-layout"
+    <section class="settings-panel card" aria-labelledby="appearance-title">
+        <h2 id="appearance-title">Darstellung</h2>
+
+        <fieldset class="field">
+            <legend>Textgrösse</legend>
+            <InputRadioGroup @bind-Value="_settings.TextSize" Name="text-size">
+    <div class="segmented-control">
+        <label><InputRadio Value="@("small")" /> Klein</label>
+        <label><InputRadio Value="@("standard")" /> Standard</label>
+        <label><InputRadio Value="@("large")" /> Gross</label>
+    </div>
+</InputRadioGroup>
+        </fieldset>
+
+        <label class="switch-row">
+            <span><strong>Kontrastmodus</strong><small>Erhöht den Kontrast und verstärkt Fokusrahmen.</small></span>
+            <input type="checkbox" role="switch" @bind="_settings.HighContrast" />
+        </label>
+
+        <hr />
+        <h2>Sprache</h2>
+
+        <label class="check-row">
+            <InputCheckbox @bind-Value="_settings.SpeechInput" />
+            <span><strong>Spracheingabe aktivieren</strong><small>Verwendet die Web Speech API des Browsers.</small></span>
+        </label>
+        <label class="check-row">
+            <InputCheckbox @bind-Value="_settings.SpeechOutput" />
+            <span><strong>KI-Antworten vorlesen</strong><small>Antworten werden nach der vollständigen Ausgabe vorgelesen.</small></span>
+        </label>
+        <label class="check-row">
+            <InputCheckbox @bind-Value="_settings.AnnounceMessages" />
+            <span><strong>Neue Nachrichten ankündigen</strong><small>Dynamische Inhalte werden über aria-live gemeldet.</small></span>
+        </label>
+
+        <div class="field">
+            <label for="speech-rate">Vorlesegeschwindigkeit: @_settings.SpeechRate.ToString("0.0")×</label>
+            <input id="speech-rate" type="range" min="0.6" max="1.6" step="0.1" @bind="_settings.SpeechRate" @bind:event="oninput" />
+        </div>
+
+        <div class="form-actions">
+            <button class="button button--primary" @onclick="SaveAsync">Einstellungen speichern</button>
+            <button class="button button--secondary" @onclick="TestSpeechAsync">Sprachausgabe testen</button>
+        </div>
+
+        @if (_saved)
+        {
+            <div class="alert alert--success" role="status">✓ Einstellungen wurden gespeichert.</div>
+        }
+    </section>
+
+    <aside class="settings-preview card" aria-labelledby="preview-title">
+        <span>LIVE-VORSCHAU</span>
+        <h2 id="preview-title">KI-Chat</h2>
+        <article class="message message--assistant">
+            <header><span class="message__role">KI-GENERIERT</span><time>10:30</time></header>
+            <p>Hallo! Wie kann ich dir helfen?</p>
+        </article>
+        <div class="preview-input" tabindex="0">Nachricht eingeben … <span>Senden</span></div>
+        <div class="alert alert--success">✓ Status wird zusätzlich textlich ausgegeben.</div>
+        <ul>
+            <li>WCAG-AA-Farbkontrast</li>
+            <li>Sichtbarer Tastaturfokus</li>
+            <li>Keine Information nur durch Farbe</li>
+        </ul>
+    </aside>
+</div>
+
+<div class="visually-hidden" aria-live="polite">@_announcement</div>
+
+@code {
+    private AccessibilitySettings _settings = new();
+    private bool _saved;
+    private string _announcement = string.Empty;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        _settings = await JS.InvokeAsync<AccessibilitySettings?>("supportBotSettings.load") ?? new AccessibilitySettings();
+        StateHasChanged();
+    }
+
+    private async Task SaveAsync()
+    {
+        await JS.InvokeVoidAsync("supportBotSettings.save", _settings);
+        _saved = true;
+        _announcement = "Einstellungen wurden gespeichert und angewendet.";
+    }
+
+    private async Task TestSpeechAsync()
+    {
+        await JS.InvokeVoidAsync(
+            "supportBotSettings.speak",
+            "Dies ist eine Testausgabe von SupportBot AI.",
+            _settings.SpeechRate);
+        _announcement = "Test der Sprachausgabe wurde gestartet.";
+    }
+}

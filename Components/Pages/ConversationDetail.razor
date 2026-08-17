@@ -1,0 +1,102 @@
+@page "/history/{Id:guid}"
+@inject IAppDataStore Store
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+
+<PageTitle>Konversationsdetail · SupportBot AI</PageTitle>
+
+@if (_loading)
+{
+    <p role="status">Konversation wird geladen …</p>
+}
+else if (_conversation is null)
+{
+    <section class="empty-state">
+        <span class="empty-state__icon" aria-hidden="true">?</span>
+        <h1>Konversation nicht gefunden</h1>
+        <a class="button button--primary" href="/history">Zu den Verläufen</a>
+    </section>
+}
+else
+{
+    <header class="page-header">
+        <div>
+            <a class="back-link" href="/history">← Zurück zu den Verläufen</a>
+            <h1>@_conversation.Title</h1>
+            <p>Konversation @_conversation.Id.ToString()[..8].ToUpperInvariant() · Erstellt @_conversation.CreatedAt.ToString("dd.MM.yyyy, HH:mm")</p>
+        </div>
+        <span class="@StatusClass(_conversation.Status)">@StatusText(_conversation.Status)</span>
+    </header>
+
+    <div class="detail-layout">
+        <section class="transcript card" aria-labelledby="transcript-title">
+            <h2 id="transcript-title" class="visually-hidden">Vollständiger Chatverlauf</h2>
+            @foreach (var message in _conversation.Messages)
+            {
+                <article class="message @(message.Role == MessageRole.User ? "message--user" : "message--assistant")">
+                    <header>
+                        <span class="message__role">@(message.Role == MessageRole.User ? "DU" : "KI-GENERIERT")</span>
+                        <time datetime="@message.CreatedAt.ToString("O")">@message.CreatedAt.ToString("HH:mm")</time>
+                    </header>
+                    <p>@message.Content</p>
+                    @if (message.ContextSources.Count > 0)
+                    {
+                        <small>Kontext: @string.Join(" · ", message.ContextSources)</small>
+                    }
+                </article>
+            }
+        </section>
+
+        <aside class="detail-sidebar card" aria-labelledby="details-title">
+            <h2 id="details-title">Details</h2>
+            <dl>
+                <dt>Kategorie</dt><dd>@_conversation.Category</dd>
+                <dt>Nachrichten</dt><dd>@_conversation.Messages.Count</dd>
+                <dt>Letzte Änderung</dt><dd>@_conversation.UpdatedAt.ToString("dd.MM.yyyy, HH:mm")</dd>
+            </dl>
+            <button class="button button--ghost" @onclick="CopyTranscriptAsync">Verlauf kopieren</button>
+            <a class="button button--secondary" href="@($"/chat/{_conversation.Id}")">Chat fortsetzen</a>
+            <a class="button button--secondary" href="@($"/escalation/{_conversation.Id}")">An Support übergeben</a>
+            <button class="button button--danger" @onclick="DeleteAsync">Konversation löschen</button>
+        </aside>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private Conversation? _conversation;
+    private bool _loading = true;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _conversation = await Store.GetConversationAsync(Id);
+        _loading = false;
+    }
+
+    private async Task CopyTranscriptAsync()
+    {
+        if (_conversation is null) return;
+        var transcript = string.Join(Environment.NewLine + Environment.NewLine,
+            _conversation.Messages.Select(message =>
+                $"[{message.CreatedAt:dd.MM.yyyy HH:mm}] {(message.Role == MessageRole.User ? "Nutzer" : "SupportBot AI")}: {message.Content}"));
+        await JS.InvokeVoidAsync("supportBotSettings.copyText", transcript);
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (_conversation is null || !await JS.InvokeAsync<bool>("supportBotSettings.confirmDelete", _conversation.Title)) return;
+        await Store.DeleteConversationAsync(_conversation.Id);
+        Navigation.NavigateTo("/history");
+    }
+
+    private static string StatusText(ConversationStatus status) => status switch
+    {
+        ConversationStatus.Resolved => "Gelöst",
+        ConversationStatus.Escalated => "Eskaliert",
+        _ => "Offen"
+    };
+
+    private static string StatusClass(ConversationStatus status) =>
+        $"status-badge status-badge--{status.ToString().ToLowerInvariant()}";
+}

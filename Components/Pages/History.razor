@@ -1,0 +1,107 @@
+@page "/history"
+@inject IAppDataStore Store
+@inject IJSRuntime JS
+
+<PageTitle>Verläufe · SupportBot AI</PageTitle>
+
+<header class="page-header">
+    <div>
+        <h1>Konversationsverläufe</h1>
+        <p>Öffne frühere Unterhaltungen mit Zeitstempeln und eindeutiger Kennzeichnung von Nutzer- und KI-Nachrichten.</p>
+    </div>
+    <a class="button button--primary" href="/chat">＋ Neuer Chat</a>
+</header>
+
+<div class="filter-bar card" aria-label="Verläufe filtern">
+    <div class="field">
+        <label for="history-search">Suchen</label>
+        <input id="history-search" @bind="_search" @bind:event="oninput" placeholder="Titel oder Kategorie" />
+    </div>
+    <div class="field">
+        <label for="history-status">Status</label>
+        <select id="history-status" @bind="_statusFilter">
+            <option value="all">Alle</option>
+            <option value="Open">Offen</option>
+            <option value="Resolved">Gelöst</option>
+            <option value="Escalated">Eskaliert</option>
+        </select>
+    </div>
+</div>
+
+@if (_loading)
+{
+    <p role="status">Verläufe werden geladen …</p>
+}
+else if (!FilteredConversations.Any())
+{
+    <section class="empty-state">
+        <span class="empty-state__icon" aria-hidden="true">≡</span>
+        <h2>Keine passenden Verläufe</h2>
+        <p>Ändere den Filter oder starte einen neuen Chat.</p>
+        <a class="button button--primary" href="/chat">Neuen Chat starten</a>
+    </section>
+}
+else
+{
+    <div class="history-grid">
+        @foreach (var conversation in FilteredConversations)
+        {
+            <article class="history-card card">
+                <div class="history-card__top">
+                    <span class="@StatusClass(conversation.Status)">@StatusText(conversation.Status)</span>
+                    <time datetime="@conversation.UpdatedAt.ToString("O")">@conversation.UpdatedAt.ToString("dd.MM.yyyy, HH:mm")</time>
+                </div>
+                <h2>@conversation.Title</h2>
+                <p>@conversation.Category · @conversation.Messages.Count Nachrichten</p>
+                <div class="history-card__actions">
+                    <a class="button button--secondary button--small" href="@($"/history/{conversation.Id}")">Verlauf öffnen</a>
+                    <a class="button button--ghost button--small" href="@($"/chat/{conversation.Id}")">Chat fortsetzen</a>
+                    <button class="button button--danger button--small" @onclick="() => DeleteAsync(conversation)">Löschen</button>
+                </div>
+            </article>
+        }
+    </div>
+}
+
+@code {
+    private IReadOnlyList<Conversation> _conversations = [];
+    private bool _loading = true;
+    private string _search = string.Empty;
+    private string _statusFilter = "all";
+
+    private IEnumerable<Conversation> FilteredConversations => _conversations.Where(item =>
+        (_statusFilter == "all" || item.Status.ToString() == _statusFilter) &&
+        (string.IsNullOrWhiteSpace(_search) ||
+         item.Title.Contains(_search, StringComparison.OrdinalIgnoreCase) ||
+         item.Category.Contains(_search, StringComparison.OrdinalIgnoreCase)));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadAsync();
+        _loading = false;
+    }
+
+    private async Task ReloadAsync() => _conversations = await Store.GetConversationsAsync();
+
+    private async Task DeleteAsync(Conversation conversation)
+    {
+        if (!await JS.InvokeAsync<bool>("supportBotSettings.confirmDelete", conversation.Title))
+        {
+            return;
+        }
+
+        await Store.DeleteConversationAsync(conversation.Id);
+        await ReloadAsync();
+        await JS.InvokeVoidAsync("supportBotSettings.announce", "Konversation wurde gelöscht.");
+    }
+
+    private static string StatusText(ConversationStatus status) => status switch
+    {
+        ConversationStatus.Resolved => "Gelöst",
+        ConversationStatus.Escalated => "Eskaliert",
+        _ => "Offen"
+    };
+
+    private static string StatusClass(ConversationStatus status) =>
+        $"status-badge status-badge--{status.ToString().ToLowerInvariant()}";
+}

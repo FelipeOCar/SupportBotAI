@@ -1,0 +1,38 @@
+@inherits LayoutComponentBase
+@inject IJSRuntime JS
+
+<a class="skip-link" href="#main-content">Direkt zum Inhalt</a>
+
+<div class="app-shell">
+    <NavMenu />
+    <div class="app-main">
+        <header class="topbar" aria-label="Kopfbereich">
+            <div>
+                <span class="topbar__context">TECHSHOP AG</span>
+                <span class="topbar__separator" aria-hidden="true">/</span>
+                <span>Digitaler Kundenservice</span>
+            </div>
+            <div class="topbar__actions">
+                <span class="beta-badge">KI-Support · Beta</span>
+                <span lang="de-CH">DE</span>
+                <span class="avatar" aria-label="Gastkonto">GA</span>
+            </div>
+        </header>
+
+        <main id="main-content" class="page-content" tabindex="-1">
+            @Body
+        </main>
+    </div>
+</div>
+
+<div id="global-announcer" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
+
+@code {
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JS.InvokeVoidAsync("supportBotSettings.initialise");
+        }
+    }
+}

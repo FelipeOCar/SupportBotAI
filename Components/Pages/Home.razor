@@ -1,0 +1,102 @@
+@page "/"
+@inject IAppDataStore Store
+@inject NavigationManager Navigation
+
+<PageTitle>Übersicht · SupportBot AI</PageTitle>
+
+<header class="page-header">
+    <div>
+        <h1>Wie können wir heute helfen?</h1>
+        <p>Stelle eine Frage zu Bestellungen, Retouren oder TechShop-Produkten. Antworten der KI werden klar gekennzeichnet.</p>
+    </div>
+    <a class="button button--primary" href="/chat">＋ Neuen Chat starten</a>
+</header>
+
+<section class="quick-actions" aria-labelledby="quick-actions-title">
+    <h2 id="quick-actions-title" class="visually-hidden">Schnellaktionen</h2>
+    <button class="quick-card card" @onclick='() => StartWith("order")'>
+        <span class="quick-card__icon" aria-hidden="true">▣</span>
+        <span><strong>Bestellung verfolgen</strong><small>Status und Liefertermin prüfen</small></span>
+        <span aria-hidden="true">→</span>
+    </button>
+    <button class="quick-card card" @onclick='() => StartWith("return")'>
+        <span class="quick-card__icon" aria-hidden="true">↶</span>
+        <span><strong>Retoure anmelden</strong><small>Frist und Ablauf erklären</small></span>
+        <span aria-hidden="true">→</span>
+    </button>
+    <button class="quick-card card" @onclick='() => StartWith("product")'>
+        <span class="quick-card__icon" aria-hidden="true">◇</span>
+        <span><strong>Produktberatung</strong><small>Passendes Zubehör finden</small></span>
+        <span aria-hidden="true">→</span>
+    </button>
+</section>
+
+<section class="section-block" aria-labelledby="recent-title">
+    <div class="section-heading">
+        <h2 id="recent-title">Letzte Konversationen</h2>
+        <a href="/history">Alle anzeigen</a>
+    </div>
+
+    @if (_loading)
+    {
+        <p role="status">Konversationen werden geladen …</p>
+    }
+    else if (_conversations.Count == 0)
+    {
+        <div class="empty-inline card">
+            <strong>Noch keine Konversationen</strong>
+            <p>Starte einen neuen Chat, um deine erste Support-Anfrage zu stellen.</p>
+            <a class="button button--primary" href="/chat">Ersten Chat starten</a>
+        </div>
+    }
+    else
+    {
+        <div class="conversation-table card" role="list">
+            @foreach (var conversation in _conversations.Take(4))
+            {
+                <a class="conversation-row" href="@($"/history/{conversation.Id}")" role="listitem">
+                    <span class="conversation-row__icon" aria-hidden="true">◉</span>
+                    <span class="conversation-row__main">
+                        <strong>@conversation.Title</strong>
+                        <small>@conversation.Category · @conversation.Messages.Count Nachrichten</small>
+                    </span>
+                    <time datetime="@conversation.UpdatedAt.ToString("O")">@FormatDate(conversation.UpdatedAt)</time>
+                    <span class="@StatusClass(conversation.Status)">@StatusText(conversation.Status)</span>
+                    <span aria-hidden="true">›</span>
+                </a>
+            }
+        </div>
+    }
+</section>
+
+<section class="trust-strip" aria-label="Hinweise zur KI-Nutzung">
+    <div><strong>Transparent</strong><span>KI-Antworten sind textlich gekennzeichnet.</span></div>
+    <div><strong>Kontrollierbar</strong><span>Du kannst abbrechen, erneut versuchen oder eskalieren.</span></div>
+    <div><strong>Datensparsam</strong><span>Keine Passwörter oder Zahlungsdaten eingeben.</span></div>
+</section>
+
+@code {
+    private IReadOnlyList<Conversation> _conversations = [];
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _conversations = await Store.GetConversationsAsync();
+        _loading = false;
+    }
+
+    private void StartWith(string starter) => Navigation.NavigateTo($"/chat?starter={starter}");
+
+    private static string FormatDate(DateTimeOffset date) =>
+        date.Date == DateTimeOffset.Now.Date ? $"Heute, {date:HH:mm}" : date.ToString("dd.MM.yyyy");
+
+    private static string StatusText(ConversationStatus status) => status switch
+    {
+        ConversationStatus.Resolved => "Gelöst",
+        ConversationStatus.Escalated => "Eskaliert",
+        _ => "Offen"
+    };
+
+    private static string StatusClass(ConversationStatus status) =>
+        $"status-badge status-badge--{status.ToString().ToLowerInvariant()}";
+}

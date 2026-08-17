@@ -1,0 +1,135 @@
+@page "/feedback/{ConversationId:guid}/{MessageId:guid}"
+@inject IAppDataStore Store
+@inject NavigationManager Navigation
+
+<PageTitle>Feedback · SupportBot AI</PageTitle>
+
+@if (_loading)
+{
+    <p role="status">Feedbackformular wird geladen …</p>
+}
+else if (_conversation is null || _message is null)
+{
+    <section class="empty-state">
+        <span class="empty-state__icon" aria-hidden="true">?</span>
+        <h1>KI-Antwort nicht gefunden</h1>
+        <a class="button button--primary" href="/history">Zu den Verläufen</a>
+    </section>
+}
+else if (_submitted)
+{
+    <section class="success-panel card" aria-labelledby="feedback-success-title" role="status">
+        <span class="success-panel__icon" aria-hidden="true">✓</span>
+        <h1 id="feedback-success-title">Danke für dein Feedback</h1>
+        <p>Die Bewertung wurde gespeichert und hilft bei der Verbesserung der Benutzeroberfläche.</p>
+        <div class="success-panel__actions">
+            @if (_feedback.RequestHumanSupport)
+            {
+                <a class="button button--primary" href="@($"/escalation/{_conversation.Id}")">An Support übergeben</a>
+            }
+            <a class="button button--secondary" href="@($"/chat/{_conversation.Id}")">Zurück zum Chat</a>
+        </div>
+    </section>
+}
+else
+{
+    <header class="page-header">
+        <div>
+            <a class="back-link" href="@($"/chat/{_conversation.Id}")">← Zurück zum Chat</a>
+            <h1>Feedback zur KI-Antwort</h1>
+            <p>Bewerte, ob die Antwort verständlich und hilfreich war. Ein Kommentar ist freiwillig.</p>
+        </div>
+    </header>
+
+    <section class="feedback-card card">
+        <article class="quoted-answer" aria-labelledby="rated-answer-title">
+            <span id="rated-answer-title" class="message__role">KI-GENERIERTE ANTWORT</span>
+            <p>@_message.Content</p>
+        </article>
+
+        <EditForm Model="_feedback" OnValidSubmit="SubmitAsync">
+            <DataAnnotationsValidator />
+            <h2>War diese Antwort hilfreich?</h2>
+            <p class="field-help">Wähle eine der beiden Möglichkeiten.</p>
+
+            <div class="rating-options" role="group" aria-label="Hilfreichkeit auswählen">
+                <button type="button"
+                        class="rating-card @(_feedback.Rating == HelpfulnessRating.Helpful ? "rating-card--selected" : null)"
+                        aria-pressed="@(_feedback.Rating == HelpfulnessRating.Helpful)"
+                        @onclick="() => SelectRating(HelpfulnessRating.Helpful)">
+                    <span aria-hidden="true">👍</span>
+                    <strong>Hilfreich</strong>
+                    <small>Die Antwort löst mein Anliegen.</small>
+                </button>
+                <button type="button"
+                        class="rating-card rating-card--negative @(_feedback.Rating == HelpfulnessRating.NotHelpful ? "rating-card--selected" : null)"
+                        aria-pressed="@(_feedback.Rating == HelpfulnessRating.NotHelpful)"
+                        @onclick="() => SelectRating(HelpfulnessRating.NotHelpful)">
+                    <span aria-hidden="true">👎</span>
+                    <strong>Nicht hilfreich</strong>
+                    <small>Ich brauche weitere Unterstützung.</small>
+                </button>
+            </div>
+            <ValidationMessage For="() => _feedback.Rating" />
+
+            <div class="field">
+                <label for="feedback-comment">Kommentar (optional)</label>
+                <InputTextArea id="feedback-comment" @bind-Value="_feedback.Comment" maxlength="500" />
+                <span class="field-help">Keine Passwörter oder Zahlungsdaten angeben.</span>
+                <ValidationMessage For="() => _feedback.Comment" />
+            </div>
+
+            <label class="check-row">
+                <InputCheckbox @bind-Value="_feedback.RequestHumanSupport" />
+                <span><strong>Zusätzlich an einen Mitarbeitenden übergeben</strong><small>Nach dem Speichern wird das Eskalationsformular geöffnet.</small></span>
+            </label>
+
+            <div class="form-actions">
+                <button class="button button--primary" type="submit">Feedback senden</button>
+                <a class="button button--ghost" href="@($"/chat/{_conversation.Id}")">Überspringen</a>
+            </div>
+        </EditForm>
+    </section>
+}
+
+@code {
+    [Parameter] public Guid ConversationId { get; set; }
+    [Parameter] public Guid MessageId { get; set; }
+    [SupplyParameterFromQuery(Name = "rating")] public string? Rating { get; set; }
+
+    private Conversation? _conversation;
+    private ChatMessage? _message;
+    private FeedbackEntry _feedback = new();
+    private bool _loading = true;
+    private bool _submitted;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _conversation = await Store.GetConversationAsync(ConversationId);
+        _message = _conversation?.Messages.FirstOrDefault(item => item.Id == MessageId && item.Role == MessageRole.Assistant);
+        _feedback = await Store.GetFeedbackAsync(ConversationId, MessageId) ?? new FeedbackEntry
+        {
+            ConversationId = ConversationId,
+            MessageId = MessageId,
+            Rating = Rating switch
+            {
+                "helpful" => HelpfulnessRating.Helpful,
+                "not-helpful" => HelpfulnessRating.NotHelpful,
+                _ => null
+            }
+        };
+        _loading = false;
+    }
+
+    private void SelectRating(HelpfulnessRating rating) => _feedback.Rating = rating;
+
+    private async Task SubmitAsync()
+    {
+        await Store.SaveFeedbackAsync(_feedback);
+        _submitted = true;
+        if (_feedback.RequestHumanSupport && _conversation is not null)
+        {
+            Navigation.NavigateTo($"/escalation/{_conversation.Id}");
+        }
+    }
+}

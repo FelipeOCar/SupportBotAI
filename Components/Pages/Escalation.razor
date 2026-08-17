@@ -1,0 +1,188 @@
+@page "/escalation/{ConversationId:guid}"
+@inject IAppDataStore Store
+
+<PageTitle>Eskalation · SupportBot AI</PageTitle>
+
+@if (_loading)
+{
+    <p role="status">Eskalationsformular wird geladen …</p>
+}
+else if (_conversation is null)
+{
+    <section class="empty-state">
+        <span class="empty-state__icon empty-state__icon--error" aria-hidden="true">!</span>
+        <h1>Konversation nicht gefunden</h1>
+        <a class="button button--primary" href="/history">Zu den Verläufen</a>
+    </section>
+}
+else if (_submitted)
+{
+    <section class="success-panel card" aria-labelledby="success-title" role="status">
+        <span class="success-panel__icon" aria-hidden="true">✓</span>
+        <h1 id="success-title">Deine Anfrage wurde übergeben</h1>
+        <p>Unser Support-Team erhält den ausgewählten Chatverlauf und meldet sich normalerweise innerhalb eines Arbeitstags.</p>
+        <strong class="ticket-number">@_request.TicketNumber</strong>
+        <div class="success-panel__actions">
+            <a class="button button--primary" href="/">Zur Übersicht</a>
+            <a class="button button--secondary" href="@($"/history/{_conversation.Id}")">Verlauf öffnen</a>
+        </div>
+    </section>
+}
+else
+{
+    <header class="page-header">
+        <div>
+            <a class="back-link" href="@($"/chat/{_conversation.Id}")">← Zurück zum Chat</a>
+            <h1>Wir übernehmen persönlich</h1>
+            <p>Der bisherige Chat kann zusammen mit dem Formular an einen Support-Mitarbeitenden übergeben werden.</p>
+        </div>
+    </header>
+
+    <div class="form-layout">
+        <section class="card form-card" aria-labelledby="escalation-form-title">
+            <h2 id="escalation-form-title">Support-Anfrage</h2>
+            <EditForm Model="_request" OnValidSubmit="SubmitAsync">
+                <DataAnnotationsValidator />
+                <ValidationSummary />
+
+                <div class="form-grid">
+                    <div class="field">
+                        <label for="customer-name">Name *</label>
+                        <InputText id="customer-name" @bind-Value="_request.Name" autocomplete="name" />
+                        <ValidationMessage For="() => _request.Name" />
+                    </div>
+                    <div class="field">
+                        <label for="order-number">Bestellnummer *</label>
+                        <InputText id="order-number" @bind-Value="_request.OrderNumber" placeholder="TS-12345" aria-describedby="order-help" />
+                        <span id="order-help" class="field-help">Format: TS- gefolgt von fünf Ziffern</span>
+                        <ValidationMessage For="() => _request.OrderNumber" />
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label for="concern">Anliegen *</label>
+                    <InputTextArea id="concern" @bind-Value="_request.Concern" maxlength="1000" />
+                    <span class="field-help">Beschreibe kurz, wobei die KI nicht helfen konnte.</span>
+                    <ValidationMessage For="() => _request.Concern" />
+                </div>
+
+                <fieldset class="field urgency-field">
+                    <legend>Dringlichkeit *</legend>
+                    <InputRadioGroup @bind-Value="_request.Urgency">
+                        <div class="radio-cards">
+                            <label>
+                                <InputRadio Value="@UrgencyLevel.Normal" />
+                                <span>
+                                    <strong>Normal</strong>
+                                    <small>Antwort innerhalb eines Arbeitstags</small>
+                                </span>
+                            </label>
+
+                            <label>
+                                <InputRadio Value="@UrgencyLevel.High" />
+                                <span>
+                                    <strong>Hoch</strong>
+                                    <small>Lieferung oder Frist ist zeitkritisch</small>
+                                </span>
+                            </label>
+
+                            <label>
+                                <InputRadio Value="@UrgencyLevel.Critical" />
+                                <span>
+                                    <strong>Kritisch</strong>
+                                    <small>Sicherheits- oder Zahlungsproblem</small>
+                                </span>
+                            </label>
+                        </div>
+                    </InputRadioGroup>
+                </fieldset>
+
+                <label class="check-row">
+                    <InputCheckbox @bind-Value="_request.IncludeConversation" />
+                    <span><strong>Bisherigen Chatverlauf übergeben</strong><small>Es werden @_conversation.Messages.Count sichtbare Nachrichten angehängt.</small></span>
+                </label>
+
+                <div class="alert alert--info">
+                    <span aria-hidden="true">i</span>
+                    <span>Datenschutz: Es werden nur die im Chat sichtbaren Inhalte übertragen. Passwörter und Zahlungsdaten gehören nicht ins Formular.</span>
+                </div>
+
+                <div class="form-actions">
+                    <button class="button button--primary" type="submit">Anfrage absenden</button>
+                    <a class="button button--ghost" href="@($"/chat/{_conversation.Id}")">Abbrechen</a>
+                </div>
+            </EditForm>
+        </section>
+
+        <aside class="card context-card" aria-labelledby="context-title">
+            <h2 id="context-title">Übergabe-Zusammenfassung</h2>
+            <span class="pill">@_conversation.Messages.Count NACHRICHTEN</span>
+            <dl>
+                <dt>Konversation</dt>
+                <dd>@_conversation.Title</dd>
+                <dt>Letzte Nutzerfrage</dt>
+                <dd>@LastUserMessage</dd>
+                <dt>Letzte KI-Antwort</dt>
+                <dd>@LastAssistantMessage</dd>
+            </dl>
+            <div class="alert alert--warning">
+                <span aria-hidden="true">!</span>
+                <span>Prüfe den Verlauf vor dem Absenden auf unnötige persönliche Daten.</span>
+            </div>
+        </aside>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid ConversationId { get; set; }
+
+    private Conversation? _conversation;
+    private EscalationRequest _request = new();
+    private bool _loading = true;
+    private bool _submitted;
+
+    private string LastUserMessage => _conversation?.Messages.LastOrDefault(item => item.Role == MessageRole.User)?.Content ?? "Keine Nutzerfrage vorhanden";
+    private string LastAssistantMessage => _conversation?.Messages.LastOrDefault(item => item.Role == MessageRole.Assistant && item.ErrorMessage is null)?.Content ?? "Keine KI-Antwort vorhanden";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _conversation = await Store.GetConversationAsync(ConversationId);
+        _request = new EscalationRequest
+        {
+            ConversationId = ConversationId,
+            OrderNumber = DetectOrderNumber(_conversation),
+            IncludeConversation = true
+        };
+        _loading = false;
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (_conversation is null) return;
+
+        _request.TicketNumber = $"SB-{DateTime.Now:yyyy}-{Random.Shared.Next(1000, 9999)}";
+        _request.ConversationSnapshot = _request.IncludeConversation
+            ? _conversation.Messages.Select(CloneMessage).ToList()
+            : [];
+
+        await Store.SaveEscalationAsync(_request);
+        _submitted = true;
+    }
+
+    private static string DetectOrderNumber(Conversation? conversation)
+    {
+        if (conversation is null) return string.Empty;
+        var text = string.Join(' ', conversation.Messages.Select(item => item.Content));
+        var match = System.Text.RegularExpressions.Regex.Match(text, @"TS-\d{5}", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return match.Success ? match.Value.ToUpperInvariant() : string.Empty;
+    }
+
+    private static ChatMessage CloneMessage(ChatMessage source) => new()
+    {
+        Id = source.Id,
+        Role = source.Role,
+        Content = source.Content,
+        CreatedAt = source.CreatedAt,
+        ContextSources = source.ContextSources.ToList()
+    };
+}

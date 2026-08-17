@@ -1,0 +1,493 @@
+@page "/chat"
+@page "/chat/{ConversationId:guid}"
+@implements IAsyncDisposable
+@inject IAppDataStore Store
+@inject IGeminiChatService Gemini
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+
+<PageTitle>Support-Chat · SupportBot AI</PageTitle>
+
+@if (_loading)
+{
+    <p role="status">Chat wird vorbereitet …</p>
+}
+else if (_conversation is null)
+{
+    <section class="empty-state">
+        <span class="empty-state__icon empty-state__icon--error" aria-hidden="true">!</span>
+        <h1>Chat konnte nicht geladen werden</h1>
+        <a class="button button--primary" href="/chat">Neuen Chat starten</a>
+    </section>
+}
+else
+{
+    <div class="chat-page-header">
+        <div>
+            <h1>@_conversation.Title</h1>
+            <p>Support-Chat mit klar gekennzeichneten KI-Antworten</p>
+        </div>
+        <span class="status-badge status-badge--@_conversation.Status.ToString().ToLowerInvariant()">@StatusText(_conversation.Status)</span>
+    </div>
+
+    <div class="chat-layout">
+        <aside class="conversation-sidebar card" aria-labelledby="conversations-title">
+            <a class="button button--primary" href="/chat">＋ Neuer Chat</a>
+            <h2 id="conversations-title">Konversationen</h2>
+            <nav aria-label="Konversationen">
+                @foreach (var item in _recentConversations.Take(8))
+                {
+                    <a class="conversation-link @(item.Id == _conversation.Id ? "conversation-link--active" : null)"
+                       href="@($"/chat/{item.Id}")"
+                       aria-current="@(item.Id == _conversation.Id ? "page" : null)">
+                        <strong>@item.Title</strong>
+                        <small>@item.UpdatedAt.ToString("dd.MM., HH:mm")</small>
+                    </a>
+                }
+            </nav>
+
+            <h2>Schnellfragen</h2>
+            <button class="quick-question" @onclick='() => UseQuickQuestion("Wo ist meine Bestellung TS-10482?")'>Bestellstatus prüfen</button>
+            <button class="quick-question" @onclick='() => UseQuickQuestion("Wie kann ich die SoundPulse Pro zurückgeben?")'>Retoure prüfen</button>
+            <button class="quick-question" @onclick='() => UseQuickQuestion("Welches Dock passt zum NovaBook Air 14?")'>Produkt vergleichen</button>
+        </aside>
+
+        <section class="chat-panel card" aria-labelledby="chat-title">
+            <header class="chat-panel__header">
+                <div>
+                    <h2 id="chat-title">TechShop Support</h2>
+                    <span>Gemini 2.5 Flash · Streaming</span>
+                </div>
+                <span class="pill">KI-CHAT</span>
+            </header>
+
+            <div class="alert alert--info ai-disclaimer">
+                <span aria-hidden="true">i</span>
+                <div>
+                    <strong>Dies ist eine KI-generierte Unterhaltung.</strong>
+                    Antworten können Fehler enthalten. Prüfe wichtige Bestell- und Lieferangaben.
+                </div>
+            </div>
+
+            <div id="chat-log"
+                 class="message-list"
+                 role="log"
+                 aria-live="@(_settings.AnnounceMessages && !_isBusy ? "polite" : "off")"
+                 aria-relevant="additions text"
+                 aria-busy="@_isBusy.ToString().ToLowerInvariant()">
+                @foreach (var message in _conversation.Messages)
+                {
+                    <article @key="message.Id"
+                             id="@($"message-{message.Id}")"
+                             class="message @(message.Role == MessageRole.User ? "message--user" : "message--assistant") @(message.ErrorMessage is not null ? "message--error" : null)"
+                             tabindex="-1"
+                             aria-label="@(message.Role == MessageRole.User ? "Deine Nachricht" : "KI-generierte Antwort")">
+                        <header>
+                            <span class="message__role">@(message.Role == MessageRole.User ? "DU" : "KI-GENERIERT")</span>
+                            <time datetime="@message.CreatedAt.ToString("O")">@message.CreatedAt.ToString("HH:mm")</time>
+                        </header>
+
+                        @if (message.IsStreaming && string.IsNullOrEmpty(message.Content))
+                        {
+                            <div class="typing-indicator" role="status">
+                                <span></span><span></span><span></span>
+                                <span class="visually-hidden">KI antwortet</span>
+                            </div>
+                        }
+                        else if (message.ErrorMessage is not null)
+                        {
+                            <div class="message-error" role="alert">
+                                <strong>Antwort konnte nicht erstellt werden</strong>
+                                <p>@message.ErrorMessage</p>
+                                <div class="message-actions">
+                                    <button class="button button--primary button--small" @onclick="RetryAsync" disabled="@_isBusy">Erneut versuchen</button>
+                                    <a class="button button--secondary button--small" href="@($"/escalation/{_conversation.Id}")">An Support übergeben</a>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <p class="message__content">@message.Content</p>
+                        }
+
+                        @if (message.Role == MessageRole.Assistant && !message.IsStreaming && message.ErrorMessage is null && !string.IsNullOrWhiteSpace(message.Content))
+                        {
+                            @if (message.ContextSources.Count > 0)
+                            {
+                                <small class="message__source">Kontext: @string.Join(" · ", message.ContextSources)</small>
+                            }
+                            <div class="message-feedback" aria-label="Antwort bewerten">
+                                <span>War diese Antwort hilfreich?</span>
+                                <a class="button button--ghost button--small" href="@($"/feedback/{_conversation.Id}/{message.Id}?rating=helpful")">👍 Ja</a>
+                                <a class="button button--ghost button--small" href="@($"/feedback/{_conversation.Id}/{message.Id}?rating=not-helpful")">👎 Nein</a>
+                            </div>
+                        }
+                    </article>
+                }
+            </div>
+
+            <div class="chat-composer">
+                @if (!string.IsNullOrWhiteSpace(_speechError))
+                {
+                    <div class="alert alert--warning" role="alert">@_speechError</div>
+                }
+                @if (_isListening)
+                {
+                    <div class="speech-status" role="status">
+                        <span class="recording-dot" aria-hidden="true"></span>
+                        Spracheingabe aktiv. Sprich jetzt oder brich die Aufnahme ab.
+                    </div>
+                }
+
+                <div class="composer-row">
+                    <button class="button button--secondary icon-button"
+                            title="@(_settings.SpeechInput ? "Spracheingabe" : "Spracheingabe ist in den Einstellungen deaktiviert")"
+                            aria-label="@(!_settings.SpeechInput ? "Spracheingabe ist deaktiviert" : _isListening ? "Spracheingabe stoppen" : "Spracheingabe starten")"
+                            aria-pressed="@_isListening"
+                            @onclick="ToggleSpeechAsync"
+                            disabled="@(_isBusy || !_settings.SpeechInput)">🎤</button>
+                    <div class="field composer-field">
+                        <label class="visually-hidden" for="chat-input">Nachricht</label>
+                        <textarea id="chat-input"
+                                  @bind="_draft"
+                                  @bind:event="oninput"
+                                  @onkeydown="HandleKeyDownAsync"
+                                  placeholder="Nachricht eingeben …"
+                                  maxlength="2000"
+                                  rows="2"
+                                  disabled="@_isBusy"></textarea>
+                    </div>
+                    <button class="button button--primary composer-send" @onclick="SendAsync" disabled="@(_isBusy || string.IsNullOrWhiteSpace(_draft))">Senden</button>
+                </div>
+                <div class="composer-meta">
+                    <span>Strg+Enter zum Senden · maximal 2000 Zeichen</span>
+                    <span>@_draft.Length / 2000</span>
+                </div>
+                <div class="composer-actions">
+                    @if (_isBusy)
+                    {
+                        <button class="button button--ghost button--small" @onclick="CancelResponse">Antwort abbrechen</button>
+                    }
+                    <a class="button button--secondary button--small" href="@($"/escalation/{_conversation.Id}")">An Menschen übergeben</a>
+                    <button class="button button--ghost button--small" @onclick="MarkResolvedAsync">Als gelöst markieren</button>
+                </div>
+
+                <details class="demo-tools">
+                    <summary>Demo-Werkzeuge für die Präsentation</summary>
+                    <label>
+                        <input type="checkbox" @bind="_simulateTimeout" disabled="@_isBusy" />
+                        Bei der nächsten KI-Antwort einen Timeout simulieren
+                    </label>
+                    <small>Der Fehler ist absichtlich steuerbar, damit der Grenzfall in der Live-Demo zuverlässig gezeigt werden kann.</small>
+                </details>
+            </div>
+        </section>
+
+        <aside class="answer-sidebar card" aria-labelledby="answer-details-title">
+            <h2 id="answer-details-title">Antwortdetails</h2>
+            <section>
+                <h3>Transparenz</h3>
+                <p>KI-Inhalte sind immer textlich als „KI-generiert“ markiert und nicht nur durch Farbe.</p>
+            </section>
+            <section>
+                <h3>Verwendeter Kontext</h3>
+                <span class="pill">Produktkatalog</span>
+                <span class="pill">Testbestellungen</span>
+                <span class="pill">Richtlinien</span>
+            </section>
+            <section>
+                <h3>Brauchst du Hilfe?</h3>
+                <a class="button button--secondary" href="@($"/escalation/{_conversation.Id}")">Menschlicher Support</a>
+            </section>
+            <div class="alert alert--warning">
+                <span aria-hidden="true">!</span>
+                <span>Liefertermine sind unverbindlich. Bei Unsicherheit eskalieren.</span>
+            </div>
+        </aside>
+    </div>
+
+    <div class="visually-hidden" aria-live="@(_settings.AnnounceMessages ? "assertive" : "off")" aria-atomic="true">@_announcement</div>
+}
+
+@code {
+    [Parameter] public Guid? ConversationId { get; set; }
+    [SupplyParameterFromQuery(Name = "starter")] public string? Starter { get; set; }
+
+    private Conversation? _conversation;
+    private IReadOnlyList<Conversation> _recentConversations = [];
+    private bool _loading = true;
+    private bool _isBusy;
+    private bool _isListening;
+    private bool _simulateTimeout;
+    private string _draft = string.Empty;
+    private string _announcement = string.Empty;
+    private string? _speechError;
+    private string? _pendingStarter;
+    private Guid? _loadedConversationId;
+    private CancellationTokenSource? _responseCancellation;
+    private DotNetObjectReference<Chat>? _dotNetReference;
+    private AccessibilitySettings _settings = new();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_conversation is not null && _loadedConversationId == ConversationId)
+        {
+            return;
+        }
+
+        _loading = true;
+        _pendingStarter ??= Starter;
+
+        if (ConversationId.HasValue)
+        {
+            _conversation = await Store.GetConversationAsync(ConversationId.Value);
+        }
+        else
+        {
+            _conversation = CreateConversation();
+            await Store.SaveConversationAsync(_conversation);
+            Navigation.NavigateTo($"/chat/{_conversation.Id}", replace: true);
+        }
+
+        _loadedConversationId = _conversation?.Id;
+        await ReloadRecentAsync();
+        _loading = false;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _dotNetReference = DotNetObjectReference.Create(this);
+            _settings = await JS.InvokeAsync<AccessibilitySettings?>("supportBotSettings.load") ?? new AccessibilitySettings();
+        }
+
+        if (_conversation is not null && !string.IsNullOrWhiteSpace(_pendingStarter) && !_isBusy)
+        {
+            var starter = _pendingStarter;
+            _pendingStarter = null;
+            _draft = starter switch
+            {
+                "order" => "Wo ist meine Bestellung TS-10482?",
+                "return" => "Wie kann ich die SoundPulse Pro zurückgeben?",
+                "product" => "Welches Dock passt zum NovaBook Air 14?",
+                _ => string.Empty
+            };
+
+            if (!string.IsNullOrWhiteSpace(_draft))
+            {
+                await SendAsync();
+            }
+        }
+    }
+
+    private static Conversation CreateConversation() => new()
+    {
+        Messages =
+        [
+            new ChatMessage
+            {
+                Role = MessageRole.Assistant,
+                Content = "Hallo! Ich helfe dir bei Bestellungen, Retouren und Produktfragen. Bitte teile keine Passwörter oder vollständigen Zahlungsdaten.",
+                ContextSources = ["TechShop-Hilfe"]
+            }
+        ]
+    };
+
+    private async Task ReloadRecentAsync() => _recentConversations = await Store.GetConversationsAsync();
+
+    private void UseQuickQuestion(string question)
+    {
+        if (!_isBusy)
+        {
+            _draft = question;
+        }
+    }
+
+    private async Task HandleKeyDownAsync(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter" && args.CtrlKey)
+        {
+            await SendAsync();
+        }
+    }
+
+    private async Task SendAsync()
+    {
+        if (_conversation is null || _isBusy || string.IsNullOrWhiteSpace(_draft)) return;
+
+        var content = _draft.Trim();
+        _draft = string.Empty;
+        _speechError = null;
+
+        _conversation.Messages.Add(new ChatMessage
+        {
+            Role = MessageRole.User,
+            Content = content
+        });
+
+        if (_conversation.Title == "Neue Konversation")
+        {
+            _conversation.Title = content.Length <= 48 ? content : $"{content[..45]}…";
+            _conversation.Category = DetectCategory(content);
+        }
+
+        await Store.SaveConversationAsync(_conversation);
+        await GenerateReplyAsync();
+    }
+
+    private async Task GenerateReplyAsync()
+    {
+        if (_conversation is null || _isBusy) return;
+
+        _isBusy = true;
+        _announcement = "SupportBot AI erstellt eine Antwort.";
+        _responseCancellation = new CancellationTokenSource();
+
+        var assistantMessage = new ChatMessage
+        {
+            Role = MessageRole.Assistant,
+            IsStreaming = true
+        };
+        _conversation.Messages.Add(assistantMessage);
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            var inputMessages = _conversation.Messages.Where(item => item.Id != assistantMessage.Id).ToList();
+            await foreach (var chunk in Gemini.StreamReplyAsync(inputMessages, _simulateTimeout, _responseCancellation.Token))
+            {
+                assistantMessage.Content += chunk;
+                await InvokeAsync(StateHasChanged);
+            }
+
+            assistantMessage.ContextSources = ["TechShop-Produktkatalog", "TechShop-Testbestellungen", "TechShop-Richtlinien"];
+            _announcement = "Neue KI-generierte Antwort ist verfügbar.";
+
+            if (_settings.SpeechOutput && !string.IsNullOrWhiteSpace(assistantMessage.Content))
+            {
+                await JS.InvokeVoidAsync("supportBotSettings.speak", assistantMessage.Content, _settings.SpeechRate);
+            }
+        }
+        catch (AiServiceException exception)
+        {
+            assistantMessage.ErrorCode = exception.Kind.ToString();
+            assistantMessage.ErrorMessage = exception.UserMessage;
+            _announcement = $"Fehler: {exception.UserMessage}";
+        }
+        finally
+        {
+            assistantMessage.IsStreaming = false;
+            _simulateTimeout = false;
+            _isBusy = false;
+            _responseCancellation?.Dispose();
+            _responseCancellation = null;
+            await Store.SaveConversationAsync(_conversation);
+            await ReloadRecentAsync();
+            await InvokeAsync(StateHasChanged);
+            await JS.InvokeVoidAsync("supportBotSettings.focus", $"message-{assistantMessage.Id}");
+        }
+    }
+
+    private async Task RetryAsync()
+    {
+        if (_conversation is null || _isBusy) return;
+        var failed = _conversation.Messages.LastOrDefault(item => item.Role == MessageRole.Assistant && item.ErrorMessage is not null);
+        if (failed is not null)
+        {
+            _conversation.Messages.Remove(failed);
+        }
+        _simulateTimeout = false;
+        await GenerateReplyAsync();
+    }
+
+    private void CancelResponse() => _responseCancellation?.Cancel();
+
+    private async Task MarkResolvedAsync()
+    {
+        if (_conversation is null) return;
+        _conversation.Status = ConversationStatus.Resolved;
+        await Store.SaveConversationAsync(_conversation);
+        _announcement = "Konversation wurde als gelöst markiert.";
+        await JS.InvokeVoidAsync("supportBotSettings.announce", _announcement);
+    }
+
+    private async Task ToggleSpeechAsync()
+    {
+        _speechError = null;
+        if (!_settings.SpeechInput)
+        {
+            _speechError = "Aktiviere die Spracheingabe zuerst unter Einstellungen.";
+            return;
+        }
+
+        if (_isListening)
+        {
+            await JS.InvokeVoidAsync("supportBotSettings.stopSpeechRecognition");
+            return;
+        }
+
+        _dotNetReference ??= DotNetObjectReference.Create(this);
+        var supported = await JS.InvokeAsync<bool>("supportBotSettings.startSpeechRecognition", _dotNetReference);
+        if (!supported)
+        {
+            _speechError = "Spracheingabe wird in diesem Browser nicht unterstützt. Verwende für die Demo Google Chrome.";
+            return;
+        }
+
+        _isListening = true;
+        _announcement = "Spracheingabe wurde gestartet.";
+    }
+
+    [JSInvokable]
+    public Task ReceiveSpeechResult(string transcript, bool isFinal)
+    {
+        _draft = transcript;
+        if (isFinal)
+        {
+            _isListening = false;
+            _announcement = $"Spracheingabe erkannt: {transcript}";
+        }
+        return InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public Task ReceiveSpeechError(string error)
+    {
+        _isListening = false;
+        _speechError = error == "not-allowed"
+            ? "Der Browser hat keinen Mikrofonzugriff. Erlaube das Mikrofon in Chrome und versuche es erneut."
+            : "Die Spracheingabe konnte nicht abgeschlossen werden. Bitte versuche es erneut.";
+        return InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public Task SpeechRecognitionEnded()
+    {
+        _isListening = false;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private static string DetectCategory(string content)
+    {
+        if (content.Contains("retour", StringComparison.OrdinalIgnoreCase) || content.Contains("zurück", StringComparison.OrdinalIgnoreCase)) return "Retoure";
+        if (content.Contains("bestell", StringComparison.OrdinalIgnoreCase) || content.Contains("liefer", StringComparison.OrdinalIgnoreCase)) return "Bestellung";
+        if (content.Contains("produkt", StringComparison.OrdinalIgnoreCase) || content.Contains("passt", StringComparison.OrdinalIgnoreCase)) return "Produktfrage";
+        return "Allgemein";
+    }
+
+    private static string StatusText(ConversationStatus status) => status switch
+    {
+        ConversationStatus.Resolved => "Gelöst",
+        ConversationStatus.Escalated => "Eskaliert",
+        _ => "Offen"
+    };
+
+    public ValueTask DisposeAsync()
+    {
+        _responseCancellation?.Cancel();
+        _responseCancellation?.Dispose();
+        _dotNetReference?.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

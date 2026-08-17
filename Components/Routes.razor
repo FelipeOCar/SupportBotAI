@@ -1,0 +1,17 @@
+<Router AppAssembly="typeof(Program).Assembly">
+    <Found Context="routeData">
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+        <RouteView RouteData="routeData" DefaultLayout="typeof(MainLayout)" />
+    </Found>
+    <NotFound>
+        <LayoutView Layout="typeof(MainLayout)">
+            <PageTitle>Seite nicht gefunden</PageTitle>
+            <section class="empty-state" aria-labelledby="not-found-title">
+                <span class="empty-state__icon" aria-hidden="true">?</span>
+                <h1 id="not-found-title">Seite nicht gefunden</h1>
+                <p>Die aufgerufene Seite existiert nicht oder wurde verschoben.</p>
+                <a class="button button--primary" href="/">Zur Übersicht</a>
+            </section>
+        </LayoutView>
+    </NotFound>
+</Router>

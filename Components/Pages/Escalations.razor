@@ -1,0 +1,61 @@
+@page "/escalations"
+@inject IAppDataStore Store
+
+<PageTitle>Eskalationen · SupportBot AI</PageTitle>
+
+<header class="page-header">
+    <div>
+        <h1>Eskalationen</h1>
+        <p>Hier siehst du Anfragen, die an den menschlichen Support übergeben wurden.</p>
+    </div>
+</header>
+
+@if (_loading)
+{
+    <p role="status">Eskalationen werden geladen …</p>
+}
+else if (_requests.Count == 0)
+{
+    <section class="empty-state">
+        <span class="empty-state__icon" aria-hidden="true">↗</span>
+        <h2>Noch keine Eskalationen</h2>
+        <p>Wenn die KI nicht weiterhilft, kann der bisherige Chat zusammen mit einem Formular übergeben werden.</p>
+        <a class="button button--primary" href="/chat">Chat starten</a>
+    </section>
+}
+else
+{
+    <div class="history-grid">
+        @foreach (var request in _requests)
+        {
+            <article class="history-card card">
+                <div class="history-card__top">
+                    <span class="status-badge status-badge--escalated">Übergeben</span>
+                    <time datetime="@request.CreatedAt.ToString("O")">@request.CreatedAt.ToString("dd.MM.yyyy, HH:mm")</time>
+                </div>
+                <h2>@request.TicketNumber</h2>
+                <p><strong>@request.OrderNumber</strong> · Dringlichkeit: @UrgencyText(request.Urgency)</p>
+                <p>@request.Concern</p>
+                <a class="button button--secondary button--small" href="@($"/history/{request.ConversationId}")">Verlauf öffnen</a>
+            </article>
+        }
+    </div>
+}
+
+@code {
+    private IReadOnlyList<EscalationRequest> _requests = [];
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _requests = await Store.GetEscalationsAsync();
+        _loading = false;
+    }
+
+    private static string UrgencyText(UrgencyLevel level) => level switch
+    {
+        UrgencyLevel.High => "Hoch",
+        UrgencyLevel.Critical => "Kritisch",
+        _ => "Normal"
+    };
+}
