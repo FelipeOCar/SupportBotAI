@@ -25,7 +25,7 @@ Der Nachteil ist die dauerhafte Serververbindung. Für die lokale Modul-Demo ist
 
 ## 3. Echte KI-Anbindung
 
-Die App verwendet das offizielle NuGet-Paket `Google.GenAI` und das Modell `gemini-3.6-flash`. Der API-Key wird aus User Secrets oder der Umgebungsvariable `GEMINI_API_KEY` gelesen und nie im Repository gespeichert. Der System-Prompt enthält ausschliesslich fiktive Produkte, Bestellungen und Richtlinien der TechShop AG.
+Die App verwendet das offizielle NuGet-Paket `Google.GenAI` und das Modell `gemini-2.5-flash`. Der API-Key wird aus User Secrets oder der Umgebungsvariable `GEMINI_API_KEY` gelesen und nie im Repository gespeichert. Der System-Prompt enthält ausschliesslich fiktive Produkte, Bestellungen und Richtlinien der TechShop AG.
 
 Die Modellregeln verlangen kurze deutsche Antworten, verbieten erfundene Fakten und fordern bei fehlendem Kontext eine ehrliche Einschränkung mit Eskalation. Das reduziert Halluzinationsrisiken, ersetzt aber keine fachliche Prüfung.
 

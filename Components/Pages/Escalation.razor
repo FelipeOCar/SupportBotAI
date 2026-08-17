@@ -68,32 +68,10 @@ else
 
                 <fieldset class="field urgency-field">
                     <legend>Dringlichkeit *</legend>
-                    <InputRadioGroup @bind-Value="_request.Urgency">
-                        <div class="radio-cards">
-                            <label>
-                                <InputRadio Value="@UrgencyLevel.Normal" />
-                                <span>
-                                    <strong>Normal</strong>
-                                    <small>Antwort innerhalb eines Arbeitstags</small>
-                                </span>
-                            </label>
-
-                            <label>
-                                <InputRadio Value="@UrgencyLevel.High" />
-                                <span>
-                                    <strong>Hoch</strong>
-                                    <small>Lieferung oder Frist ist zeitkritisch</small>
-                                </span>
-                            </label>
-
-                            <label>
-                                <InputRadio Value="@UrgencyLevel.Critical" />
-                                <span>
-                                    <strong>Kritisch</strong>
-                                    <small>Sicherheits- oder Zahlungsproblem</small>
-                                </span>
-                            </label>
-                        </div>
+                    <InputRadioGroup @bind-Value="_request.Urgency" class="radio-cards">
+                        <label><InputRadio Value="@UrgencyLevel.Normal" /> <span><strong>Normal</strong><small>Antwort innerhalb eines Arbeitstags</small></span></label>
+                        <label><InputRadio Value="@UrgencyLevel.High" /> <span><strong>Hoch</strong><small>Lieferung oder Frist ist zeitkritisch</small></span></label>
+                        <label><InputRadio Value="@UrgencyLevel.Critical" /> <span><strong>Kritisch</strong><small>Sicherheits- oder Zahlungsproblem</small></span></label>
                     </InputRadioGroup>
                 </fieldset>
 

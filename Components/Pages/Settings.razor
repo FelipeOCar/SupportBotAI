@@ -10,19 +10,17 @@
     </div>
 </header>
 
-<div class="settings-layout"
+<div class="settings-layout">
     <section class="settings-panel card" aria-labelledby="appearance-title">
         <h2 id="appearance-title">Darstellung</h2>
 
         <fieldset class="field">
             <legend>Textgrösse</legend>
-            <InputRadioGroup @bind-Value="_settings.TextSize" Name="text-size">
-    <div class="segmented-control">
-        <label><InputRadio Value="@("small")" /> Klein</label>
-        <label><InputRadio Value="@("standard")" /> Standard</label>
-        <label><InputRadio Value="@("large")" /> Gross</label>
-    </div>
-</InputRadioGroup>
+            <div class="segmented-control">
+                <label><input type="radio" name="text-size" value="small" @bind="_settings.TextSize" /> Klein</label>
+                <label><input type="radio" name="text-size" value="standard" @bind="_settings.TextSize" /> Standard</label>
+                <label><input type="radio" name="text-size" value="large" @bind="_settings.TextSize" /> Gross</label>
+            </div>
         </fieldset>
 
         <label class="switch-row">
