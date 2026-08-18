@@ -13,7 +13,9 @@ public sealed class GeminiChatService : IGeminiChatService
     private readonly GeminiOptions _options;
     private readonly ILogger<GeminiChatService> _logger;
 
-    public GeminiChatService(IOptions<GeminiOptions> options, ILogger<GeminiChatService> logger)
+    public GeminiChatService(
+        IOptions<GeminiOptions> options,
+        ILogger<GeminiChatService> logger)
     {
         _options = options.Value;
         _logger = logger;
@@ -25,7 +27,7 @@ public sealed class GeminiChatService : IGeminiChatService
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var apiKey = string.IsNullOrWhiteSpace(_options.ApiKey)
-            ? Environment.GetEnvironmentVariable("GEMINI_API_KEY")
+            ? System.Environment.GetEnvironmentVariable("GEMINI_API_KEY")
             : _options.ApiKey;
 
         if (string.IsNullOrWhiteSpace(apiKey))
@@ -35,64 +37,146 @@ public sealed class GeminiChatService : IGeminiChatService
                 "Der Gemini API-Key fehlt. Richte ihn über Visual Studio User Secrets ein.");
         }
 
-        var timeoutSeconds = Math.Clamp(_options.TimeoutSeconds, 5, 120);
-        using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutSource.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
+        var timeoutSeconds = Math.Clamp(
+            _options.TimeoutSeconds,
+            5,
+            120);
 
-        try
+        using var timeoutSource =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken);
+
+        timeoutSource.CancelAfter(
+            TimeSpan.FromSeconds(timeoutSeconds));
+
+        if (simulateTimeout)
         {
-            if (simulateTimeout)
-            {
-                await Task.Delay(TimeSpan.FromSeconds(timeoutSeconds + 5), timeoutSource.Token);
-            }
+            await SimulateTimeoutAsync(
+                timeoutSeconds,
+                timeoutSource.Token,
+                cancellationToken);
+        }
 
-            var client = new Client(apiKey: apiKey);
-            var config = new GenerateContentConfig
+        var client = new Client(apiKey: apiKey);
+
+        var config = new GenerateContentConfig
+        {
+            SystemInstruction = new Content
             {
-                SystemInstruction = new Content
+                Parts = new List<Part>
                 {
-                    Parts = new List<Part> { new() { Text = TechShopContext.SystemPrompt } }
-                },
-                Temperature = 0.2,
-                MaxOutputTokens = Math.Clamp(_options.MaxOutputTokens, 100, 2000)
-            };
-
-            var prompt = BuildConversationPrompt(messages);
-            var receivedContent = false;
-
-            var stream = client.Models.GenerateContentStreamAsync(
-                model: _options.Model,
-                contents: prompt,
-                config: config);
-
-            await using var enumerator = stream.GetAsyncEnumerator(timeoutSource.Token);
-            while (await enumerator.MoveNextAsync().AsTask().WaitAsync(timeoutSource.Token))
-            {
-                var chunk = enumerator.Current;
-                var text = chunk.Candidates?
-                    .FirstOrDefault()?
-                    .Content?
-                    .Parts?
-                    .FirstOrDefault()?
-                    .Text;
-
-                if (!string.IsNullOrEmpty(text))
-                {
-                    receivedContent = true;
-                    yield return text;
+                    new()
+                    {
+                        Text = TechShopContext.SystemPrompt
+                    }
                 }
-            }
+            },
 
-            if (!receivedContent)
+            Temperature = 0.2,
+
+            MaxOutputTokens = Math.Clamp(
+                _options.MaxOutputTokens,
+                100,
+                2000)
+        };
+
+        var prompt = BuildConversationPrompt(messages);
+
+        var stream = client.Models.GenerateContentStreamAsync(
+            model: _options.Model,
+            contents: prompt,
+            config: config);
+
+        var receivedContent = false;
+
+        await using var enumerator =
+            stream.GetAsyncEnumerator(timeoutSource.Token);
+
+        while (true)
+        {
+            bool hasNext;
+
+            try
+            {
+                hasNext = await enumerator
+                    .MoveNextAsync()
+                    .AsTask()
+                    .WaitAsync(timeoutSource.Token);
+            }
+            catch (OperationCanceledException exception)
+                when (cancellationToken.IsCancellationRequested)
             {
                 throw new AiServiceException(
+                    AiFailureKind.Cancelled,
+                    "Die Antwort wurde abgebrochen.",
+                    exception);
+            }
+            catch (OperationCanceledException exception)
+            {
+                throw new AiServiceException(
+                    AiFailureKind.Timeout,
+                    "Die KI hat nicht rechtzeitig geantwortet. Deine Nachricht bleibt erhalten.",
+                    exception);
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(
+                    exception,
+                    "Gemini-Anfrage fehlgeschlagen");
+
+                throw new AiServiceException(
                     AiFailureKind.Unavailable,
-                    "Die KI hat keine Antwort geliefert. Bitte versuche es erneut oder übergib die Anfrage an den Support.");
+                    "Der KI-Dienst ist momentan nicht erreichbar. Bitte versuche es erneut oder übergib die Anfrage an den Support.",
+                    exception);
+            }
+
+            if (!hasNext)
+            {
+                break;
+            }
+
+            var text = enumerator.Current.Candidates?
+                .FirstOrDefault()?
+                .Content?
+                .Parts?
+                .FirstOrDefault()?
+                .Text;
+
+            if (!string.IsNullOrEmpty(text))
+            {
+                receivedContent = true;
+
+                // yield return liegt bewusst ausserhalb des try-catch-Blocks.
+                yield return text;
             }
         }
-        catch (OperationCanceledException exception) when (cancellationToken.IsCancellationRequested)
+
+        if (!receivedContent)
         {
-            throw new AiServiceException(AiFailureKind.Cancelled, "Die Antwort wurde abgebrochen.", exception);
+            throw new AiServiceException(
+                AiFailureKind.Unavailable,
+                "Die KI hat keine Antwort geliefert. Bitte versuche es erneut oder übergib die Anfrage an den Support.");
+        }
+    }
+
+    private static async Task SimulateTimeoutAsync(
+        int timeoutSeconds,
+        CancellationToken timeoutToken,
+        CancellationToken requestToken)
+    {
+        try
+        {
+            await Task.Delay(
+                TimeSpan.FromSeconds(timeoutSeconds + 5),
+                timeoutToken);
+        }
+        catch (OperationCanceledException exception)
+            when (requestToken.IsCancellationRequested)
+        {
+            throw new AiServiceException(
+                AiFailureKind.Cancelled,
+                "Die Antwort wurde abgebrochen.",
+                exception);
         }
         catch (OperationCanceledException exception)
         {
@@ -101,32 +185,31 @@ public sealed class GeminiChatService : IGeminiChatService
                 "Die KI hat nicht rechtzeitig geantwortet. Deine Nachricht bleibt erhalten.",
                 exception);
         }
-        catch (AiServiceException)
-        {
-            throw;
-        }
-        catch (Exception exception)
-        {
-            _logger.LogError(exception, "Gemini-Anfrage fehlgeschlagen");
-            throw new AiServiceException(
-                AiFailureKind.Unavailable,
-                "Der KI-Dienst ist momentan nicht erreichbar. Bitte versuche es erneut oder übergib die Anfrage an den Support.",
-                exception);
-        }
     }
 
-    private static string BuildConversationPrompt(IReadOnlyList<ChatMessage> messages)
+    private static string BuildConversationPrompt(
+        IReadOnlyList<ChatMessage> messages)
     {
         var builder = new StringBuilder();
+
         builder.AppendLine("Bisheriger Chatverlauf:");
+
         foreach (var message in messages.TakeLast(12))
         {
-            var role = message.Role == MessageRole.User ? "Kundin/Kunde" : "SupportBot AI";
-            builder.Append(role).Append(": ").AppendLine(message.Content);
+            var role = message.Role == MessageRole.User
+                ? "Kundin/Kunde"
+                : "SupportBot AI";
+
+            builder
+                .Append(role)
+                .Append(": ")
+                .AppendLine(message.Content);
         }
 
         builder.AppendLine();
-        builder.AppendLine("Antworte jetzt auf die letzte Nachricht der Kundin oder des Kunden.");
+        builder.AppendLine(
+            "Antworte jetzt auf die letzte Nachricht der Kundin oder des Kunden.");
+
         return builder.ToString();
     }
 }

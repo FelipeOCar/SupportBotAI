@@ -16,11 +16,28 @@
 
         <fieldset class="field">
             <legend>Textgrösse</legend>
-            <div class="segmented-control">
-                <label><input type="radio" name="text-size" value="small" @bind="_settings.TextSize" /> Klein</label>
-                <label><input type="radio" name="text-size" value="standard" @bind="_settings.TextSize" /> Standard</label>
-                <label><input type="radio" name="text-size" value="large" @bind="_settings.TextSize" /> Gross</label>
-            </div>
+
+            <InputRadioGroup TValue="string"
+                             @bind-Value="_settings.TextSize"
+                             Name="text-size"
+                             class="segmented-control">
+
+                <label>
+                    <InputRadio TValue="string" Value="@("small")" />
+                    Klein
+                </label>
+
+                <label>
+                    <InputRadio TValue="string" Value="@("standard")" />
+                    Standard
+                </label>
+
+                <label>
+                    <InputRadio TValue="string" Value="@("large")" />
+                    Gross
+                </label>
+
+            </InputRadioGroup>
         </fieldset>
 
         <label class="switch-row">
