@@ -1,6 +1,6 @@
 # SupportBot AI
 
-Blazor-Web-App für das Modul 322: ein transparenter und barrierearmer KI-Kundenservice der fiktiven TechShop AG. Die App verwendet **Gemini 2.5 Flash**, streamt Antworten, speichert Daten lokal als JSON und bietet einen klaren Übergang zu menschlichem Support.
+Blazor-Web-App für das Modul 322: ein transparenter und barrierearmer KI-Kundenservice der fiktiven TechShop AG. Die App verwendet **Gemini 3.6 Flash**, streamt Antworten, speichert Daten lokal als JSON und bietet einen klaren Übergang zu menschlichem Support.
 
 ## Funktionsumfang
 
